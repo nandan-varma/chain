@@ -41,7 +41,6 @@ function ChainGrid() {
         const rows = arr.length;
         const cols = arr[0].length;
     
-        // Helper function to check if a cell is valid (within bounds)
         const isValidCell = (r: number, c: number) => r >= 0 && r < rows && c >= 0 && c < cols;
     
         for (let r = 0; r < rows; r++) {
@@ -58,10 +57,10 @@ function ChainGrid() {
                     arr[r][c] = 0;
     
                     const neighbors = [
-                        [-1, 0], // Above
-                        [1, 0],  // Below
-                        [0, -1], // Left
-                        [0, 1]   // Right
+                        [-1, 0],
+                        [1, 0], 
+                        [0, -1],
+                        [0, 1]  
                     ];
     
                     for (const [dr, dc] of neighbors) {
