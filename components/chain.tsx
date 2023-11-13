@@ -40,7 +40,7 @@ function ChainGrid() {
             if(array.owners[row][col] == 0){
                 
             }else{
-                alert( `it is ${colors[turn]}'s turn wait for ${colors[array.owners[row][col]]}'s turn to change this`);
+                alert( `it is ${colors[turn]} s turn wait for ${colors[array.owners[row][col]]} s turn to change this`);
                 return;
             }
         }
