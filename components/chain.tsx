@@ -111,7 +111,7 @@ function ChainGrid() {
 
     return (
         <div className="mt-8">
-            <div className='h-8 w-8 rounded-full' style={{backgroundColor: colors[turn]}}></div>'s turn
+            <div className='h-8 w-8 rounded-full' style={{backgroundColor: colors[turn]}}></div> s turn
             <table className="border-collapse">
                 <tbody>
                     {array.array.map((row, rowIndex) => (
