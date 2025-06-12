@@ -580,7 +580,8 @@ function CellComponent({
     if (meshRef.current && isNearCritical) {
       pulseRef.current = (pulseRef.current + 0.02) % (Math.PI * 2)
       const pulse = Math.sin(pulseRef.current) * 0.5 + 0.5
-      meshRef.current.material.emissiveIntensity = pulse * 0.2
+      const material = meshRef.current.material as THREE.MeshStandardMaterial
+      material.emissiveIntensity = pulse * 0.2
     }
   })
 
