@@ -1,10 +1,5 @@
-'use client'
-import ChainGrid from "@/components/chain"
+import ChainReactionGame from "@/components/chain-reaction-game"
 
-export default function IndexPage({ params }: { params: { slug: string } }) {
-    return (
-        <section className="container grid items-center gap-6 pb-8 pt-6 md:py-10">
-            <ChainGrid gameId={params.slug as string} />
-        </section>
-    )
+export default function Page() {
+  return <ChainReactionGame />
 }
