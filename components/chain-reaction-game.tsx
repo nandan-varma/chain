@@ -108,33 +108,84 @@ export default function ChainReactionGame() {
     lastExplosion: null,
   })
 
+  // Use ref to track if a move is currently being processed to prevent race conditions
+  const processingMoveRef = useRef(false)
+  // Use ref to track if component is mounted to prevent state updates after unmount
+  const isMountedRef = useRef(true)
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false
+      processingMoveRef.current = false
+    }
+  }, [])
+  
   // Clean up completed animations
   useEffect(() => {
-    if (gameState.animatingOrbs.length > 0) {
+    if (gameState.animatingOrbs.length > 0 && isMountedRef.current) {
       const now = Date.now()
-      const completedOrbs = gameState.animatingOrbs.filter((orb) => now > orb.startTime + orb.duration || orb.completed)
+      const completedOrbs = gameState.animatingOrbs.filter((orb) => {
+        const isExpired = now > orb.startTime + orb.duration + 100 // Add small buffer
+        return isExpired || orb.completed
+      })
 
       if (completedOrbs.length > 0) {
-        setGameState((prev) => ({
-          ...prev,
-          animatingOrbs: prev.animatingOrbs.filter((orb) => !completedOrbs.includes(orb)),
-          animating: prev.animatingOrbs.length - completedOrbs.length > 0,
-        }))
+        setGameState((prev) => {
+          const remainingOrbs = prev.animatingOrbs.filter((orb) => !completedOrbs.includes(orb))
+          const shouldStillAnimate = remainingOrbs.length > 0
+          
+          return {
+            ...prev,
+            animatingOrbs: remainingOrbs,
+            animating: shouldStillAnimate,
+          }
+        })
       }
     }
   }, [gameState.animatingOrbs])
 
+  // Reset processing flag when all animations complete
+  useEffect(() => {
+    if (!gameState.animating && gameState.animatingOrbs.length === 0 && processingMoveRef.current) {
+      console.log("All animations complete, resetting processing flag")
+      processingMoveRef.current = false
+    }
+  }, [gameState.animating, gameState.animatingOrbs.length])
+
+  // Safety timeout to prevent being stuck in animating state forever
+  useEffect(() => {
+    if (gameState.animating) {
+      const timeout = setTimeout(() => {
+        if (isMountedRef.current) {
+          console.log("Safety timeout triggered - resetting animation state")
+          setGameState((prev) => ({
+            ...prev,
+            animating: false,
+            animatingOrbs: [],
+          }))
+          processingMoveRef.current = false
+        }
+      }, 3000) // 3 second safety timeout
+
+      return () => clearTimeout(timeout)
+    }
+  }, [gameState.animating])
+
   const resetGame = () => {
-    setGameState({
-      board: createInitialBoard(),
-      currentPlayer: 1,
-      gameStatus: "playing",
-      winner: null,
-      animating: false,
-      moveCount: 0,
-      animatingOrbs: [],
-      lastExplosion: null,
-    })
+    processingMoveRef.current = false
+    if (isMountedRef.current) {
+      setGameState({
+        board: createInitialBoard(),
+        currentPlayer: 1,
+        gameStatus: "playing",
+        winner: null,
+        animating: false,
+        moveCount: 0,
+        animatingOrbs: [],
+        lastExplosion: null,
+      })
+    }
   }
 
   const checkVictory = (board: Cell[][], moveCount: number): Player | null => {
@@ -188,7 +239,11 @@ export default function ChainReactionGame() {
     }
   }
 
-  const processExplosions = async (board: Cell[][], player: Player): Promise<Cell[][]> => {
+  const processExplosions = (board: Cell[][], player: Player): {
+    finalBoard: Cell[][];
+    animatingOrbs: AnimatingOrb[];
+    lastExplosion: { row: number; col: number } | null;
+  } => {
     // Create a deep copy of the board to avoid mutation issues
     const newBoard = board.map((row) =>
       row.map((cell) => ({
@@ -200,7 +255,9 @@ export default function ChainReactionGame() {
 
     let hasExplosions = true
     let iterationCount = 0
-    let animationPromises: Promise<void>[] = []
+    let allAnimatingOrbs: AnimatingOrb[] = []
+    let lastExplosionPos: { row: number; col: number } | null = null
+    let animationDelay = 0
 
     while (hasExplosions && iterationCount < 100) {
       iterationCount++
@@ -219,6 +276,9 @@ export default function ChainReactionGame() {
       }
 
       if (explosions.length > 0) {
+        // Add delay for each explosion wave to create visual cascade
+        animationDelay += ANIMATION_DURATION * 0.3
+
         // Process all explosions simultaneously
         for (const [row, col] of explosions) {
           // Double-check bounds before processing
@@ -227,11 +287,8 @@ export default function ChainReactionGame() {
             const orbsToDistribute = cell.criticalMass
             const cellColor = cell.player ? PLAYER_COLORS[cell.player] : "#ffffff"
 
-            // Set last explosion for visual effects
-            setGameState((prev) => ({
-              ...prev,
-              lastExplosion: { row, col },
-            }))
+            // Track last explosion for visual effects
+            lastExplosionPos = { row, col }
 
             // Remove orbs from exploding cell
             cell.count -= orbsToDistribute
@@ -254,9 +311,8 @@ export default function ChainReactionGame() {
               ) {
                 const adjCell = newBoard[adjRow][adjCol]
                 const targetColor = PLAYER_COLORS[player]
-                const currentColor = adjCell.player ? PLAYER_COLORS[adjCell.player] : "#ffffff"
 
-                // Create animating orb
+                // Create animating orb with staggered timing
                 const animatingOrb = createAnimatingOrb(
                   row,
                   col,
@@ -268,48 +324,26 @@ export default function ChainReactionGame() {
                   ANIMATION_DURATION,
                 )
 
-                // Add the animating orb to state
-                setGameState((prev) => ({
-                  ...prev,
-                  animatingOrbs: [...prev.animatingOrbs, animatingOrb],
-                  animating: true,
-                }))
+                // Add delay to create cascade effect
+                animatingOrb.startTime += animationDelay
 
-                // Create a promise that resolves when the animation should be complete
-                const animationPromise = new Promise<void>((resolve) => {
-                  setTimeout(() => {
-                    // Update the adjacent cell after animation
-                    adjCell.count += 1
-                    adjCell.player = player
+                allAnimatingOrbs.push(animatingOrb)
 
-                    // Mark the orb as completed
-                    setGameState((prev) => ({
-                      ...prev,
-                      animatingOrbs: prev.animatingOrbs.map((orb) =>
-                        orb.id === animatingOrb.id ? { ...orb, completed: true } : orb,
-                      ),
-                    }))
-
-                    resolve()
-                  }, ANIMATION_DURATION)
-                })
-
-                animationPromises.push(animationPromise)
+                // Update the adjacent cell immediately
+                adjCell.count += 1
+                adjCell.player = player
               }
             }
           }
         }
-
-        // Wait for all animations in this explosion cycle to complete
-        await Promise.all(animationPromises)
-        animationPromises = []
-
-        // Small delay between explosion cycles
-        await new Promise((resolve) => setTimeout(resolve, 50))
       }
     }
 
-    return newBoard
+    return {
+      finalBoard: newBoard,
+      animatingOrbs: allAnimatingOrbs,
+      lastExplosion: lastExplosionPos,
+    }
   }
 
   const makeMove = async (row: number, col: number) => {
@@ -319,7 +353,9 @@ export default function ChainReactionGame() {
       return
     }
 
-    if (gameState.animating || gameState.gameStatus === "won") return
+    if (!isMountedRef.current || gameState.animating || gameState.gameStatus === "won" || processingMoveRef.current) {
+      return
+    }
 
     // Ensure the cell exists
     if (!gameState.board[row] || !gameState.board[row][col]) {
@@ -330,11 +366,21 @@ export default function ChainReactionGame() {
     const cell = gameState.board[row][col]
 
     // Check if move is legal
-    if (cell.count > 0 && cell.player !== gameState.currentPlayer) return
+    if (cell.count > 0 && cell.player !== gameState.currentPlayer) {
+      return
+    }
 
-    setGameState((prev) => ({ ...prev, animating: true }))
+    // Set processing flag to prevent race conditions
+    processingMoveRef.current = true
 
     try {
+      // Clear any existing animations first
+      setGameState((prev) => ({
+        ...prev,
+        animating: true,
+        animatingOrbs: [], // Clear all existing animations
+      }))
+
       // Create a safe copy of the board
       const newBoard = gameState.board.map((r) =>
         r.map((c) => ({
@@ -344,15 +390,18 @@ export default function ChainReactionGame() {
         })),
       )
 
-      // Animate adding a new orb
-      const targetColor = PLAYER_COLORS[gameState.currentPlayer]
-      const currentColor = cell.player ? PLAYER_COLORS[cell.player] : "#ffffff"
+      const currentPlayer = gameState.currentPlayer
+      const targetColor = PLAYER_COLORS[currentPlayer]
 
-      // Create animating orb dropping from above
+      // Place orb immediately on the board copy
+      newBoard[row][col].count += 1
+      newBoard[row][col].player = currentPlayer
+
+      // Create drop animation
       const dropInOrb: AnimatingOrb = {
         id: `drop-${Date.now()}-${Math.random()}`,
         fromPosition: [col, 3, row],
-        toPosition: [col, 0.2 + cell.count * 0.3, row],
+        toPosition: [col, 0.2 + (cell.count) * 0.3, row], // Use original count for position
         fromColor: targetColor,
         toColor: targetColor,
         startTime: Date.now(),
@@ -360,55 +409,64 @@ export default function ChainReactionGame() {
         completed: false,
       }
 
-      // Add the animating orb to state
-      setGameState((prev) => ({
-        ...prev,
-        animatingOrbs: [...prev.animatingOrbs, dropInOrb],
-      }))
+      // Add drop animation
+      if (isMountedRef.current) {
+        setGameState((prev) => ({
+          ...prev,
+          animatingOrbs: [dropInOrb],
+        }))
+      }
 
       // Wait for drop animation to complete
       await new Promise<void>((resolve) => {
-        setTimeout(() => {
-          // Place orb after animation
-          newBoard[row][col].count += 1
-          newBoard[row][col].player = gameState.currentPlayer
-
-          // Mark the orb as completed
-          setGameState((prev) => ({
-            ...prev,
-            animatingOrbs: prev.animatingOrbs.map((orb) =>
-              orb.id === dropInOrb.id ? { ...orb, completed: true } : orb,
-            ),
-          }))
-
-          resolve()
-        }, ANIMATION_DURATION)
+        setTimeout(resolve, ANIMATION_DURATION + 50)
       })
 
-      // Process explosions
-      const finalBoard = await processExplosions(newBoard, gameState.currentPlayer)
+      // Only continue if component is still mounted
+      if (!isMountedRef.current) {
+        processingMoveRef.current = false
+        return
+      }
 
+      // Process explosions synchronously
+      const explosionResult = processExplosions(newBoard, currentPlayer)
+      
       // Check for victory
       const newMoveCount = gameState.moveCount + 1
-      const winner = checkVictory(finalBoard, newMoveCount)
+      const winner = checkVictory(explosionResult.finalBoard, newMoveCount)
+      
+      // Determine next player
+      const nextPlayer: Player = winner ? currentPlayer : (currentPlayer === 1 ? 2 : 1)
 
-      // Wait a bit for any final animations to complete
-      setTimeout(() => {
+      // Apply all changes atomically
+      if (isMountedRef.current) {
         setGameState((prev) => ({
           ...prev,
-          board: finalBoard,
-          currentPlayer: winner ? gameState.currentPlayer : gameState.currentPlayer === 1 ? 2 : 1,
+          board: explosionResult.finalBoard,
+          currentPlayer: nextPlayer,
           gameStatus: winner ? "won" : "playing",
           winner,
-          animating: false,
+          animating: explosionResult.animatingOrbs.length > 0,
           moveCount: newMoveCount,
-          lastExplosion: null,
+          animatingOrbs: explosionResult.animatingOrbs, // Only explosion orbs, drop orb is done
+          lastExplosion: explosionResult.lastExplosion,
         }))
-      }, 100)
+      }
+
+      // The processing flag will be reset by the useEffect when animations complete
+
     } catch (error) {
       console.error("Error in makeMove:", error)
-      // Reset animation state if there's an error
-      setGameState((prev) => ({ ...prev, animating: false, lastExplosion: null }))
+      // Reset animation state and processing flag if there's an error
+      processingMoveRef.current = false
+      if (isMountedRef.current) {
+        setGameState((prev) => ({ 
+          ...prev, 
+          animating: false, 
+          animatingOrbs: [],
+          lastExplosion: null 
+        }))
+      }
     }
   }
 
@@ -466,10 +524,13 @@ function GameBoard({
 }) {
   const { raycaster, camera, gl } = useThree()
   const boardRef = useRef<THREE.Group>(null)
+  const clickProcessingRef = useRef(false)
 
-  // Improved click handler with better raycasting
+  // Improved click handler with better race condition protection
   const handleClick = (event: any) => {
-    if (gameState.animating || gameState.gameStatus === "won") return
+    if (gameState.animating || gameState.gameStatus === "won" || clickProcessingRef.current) return
+
+    clickProcessingRef.current = true
 
     // Calculate normalized device coordinates
     const rect = gl.domElement.getBoundingClientRect()
@@ -496,6 +557,11 @@ function GameBoard({
         onCellClick(userData.row, userData.col)
       }
     }
+
+    // Reset click processing flag after a short delay
+    setTimeout(() => {
+      clickProcessingRef.current = false
+    }, 100)
   }
 
   // Use a more reliable event attachment method
@@ -560,16 +626,26 @@ function CellComponent({
 }) {
   const meshRef = useRef<THREE.Mesh>(null)
   const [hovered, setHovered] = useState(false)
+  const cellClickProcessingRef = useRef(false)
 
   const isLegalMove = cell.count === 0 || cell.player === gameState.currentPlayer
   const shouldHighlight = gameState.gameStatus === "playing" && !gameState.animating && isLegalMove
 
-  // Add direct click handler to each cell for better reliability
+  // Add direct click handler to each cell with race condition protection
   const handleCellClick = (e: any) => {
     e.stopPropagation()
-    if (!gameState.animating && gameState.gameStatus === "playing") {
-      onCellClick(row, col)
+    
+    if (cellClickProcessingRef.current || gameState.animating || gameState.gameStatus !== "playing") {
+      return
     }
+
+    cellClickProcessingRef.current = true
+    onCellClick(row, col)
+    
+    // Reset processing flag after a delay
+    setTimeout(() => {
+      cellClickProcessingRef.current = false
+    }, 100)
   }
 
   // Highlight effect for cells that are about to explode
@@ -661,34 +737,45 @@ function OrbComponent({
 }
 
 function AnimatedOrbComponent({ orb }: { orb: AnimatingOrb }) {
-  // Calculate progress based on time
-  const progress = Math.min(1, (Date.now() - orb.startTime) / orb.duration)
+  const meshRef = useRef<THREE.Mesh>(null)
+  const materialRef = useRef<THREE.MeshStandardMaterial>(null)
 
-  // Use react-spring for smooth animations
-  const { position, color } = useSpring({
-    position:
-      progress === 1
-        ? orb.toPosition
-        : [
-            orb.fromPosition[0] + (orb.toPosition[0] - orb.fromPosition[0]) * progress,
-            orb.fromPosition[1] + (orb.toPosition[1] - orb.fromPosition[1]) * progress,
-            orb.fromPosition[2] + (orb.toPosition[2] - orb.fromPosition[2]) * progress,
-          ],
-    color: progress === 1 ? orb.toColor : orb.fromColor,
-    config: { tension: 120, friction: 14 },
+  useFrame(() => {
+    if (!meshRef.current || !materialRef.current) return
+
+    // Calculate progress based on time with bounds checking
+    const elapsed = Date.now() - orb.startTime
+    const progress = Math.min(1, Math.max(0, elapsed / orb.duration))
+
+    // Interpolate position
+    const x = orb.fromPosition[0] + (orb.toPosition[0] - orb.fromPosition[0]) * progress
+    const y = orb.fromPosition[1] + (orb.toPosition[1] - orb.fromPosition[1]) * progress
+    const z = orb.fromPosition[2] + (orb.toPosition[2] - orb.fromPosition[2]) * progress
+
+    meshRef.current.position.set(x, y, z)
+
+    // Interpolate color if needed (for now just use target color)
+    materialRef.current.color.set(progress < 1 ? orb.fromColor : orb.toColor)
+    materialRef.current.emissive.set(progress < 1 ? orb.fromColor : orb.toColor)
+
+    // Mark as completed when animation finishes
+    if (progress >= 1 && !orb.completed) {
+      orb.completed = true
+    }
   })
 
   return (
-    <animated.mesh position={position as any} castShadow>
+    <mesh ref={meshRef} position={orb.fromPosition} castShadow>
       <sphereGeometry args={[ORB_RADIUS, 16, 16]} />
-      <animated.meshStandardMaterial
-        color={color as any}
+      <meshStandardMaterial
+        ref={materialRef}
+        color={orb.fromColor}
         metalness={0.3}
         roughness={0.4}
-        emissive={color as any}
+        emissive={orb.fromColor}
         emissiveIntensity={0.2}
       />
-    </animated.mesh>
+    </mesh>
   )
 }
 
