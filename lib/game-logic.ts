@@ -9,6 +9,19 @@ import {
 } from "./game-types"
 
 export const ANIMATION_DURATION = 500
+export const MAX_EXPLOSION_ITERATIONS = 100
+export const ORB_SPAWN_DELAY_MS = 50
+export const EXPLOSION_DELAY_MS = 300
+
+export interface ExplosionRound {
+  round: number
+  explosions: Array<{
+    row: number
+    col: number
+    orbsToDistribute: number
+    targetCells: Array<{ row: number; col: number }>
+  }>
+}
 
 export function getCriticalMass(row: number, col: number): number {
   const isCorner =
@@ -55,12 +68,72 @@ export function cloneBoard(board: Cell[][]): Cell[][] {
   return board.map((row) => row.map((cell) => ({ ...cell })))
 }
 
+export function calculateExplosionRounds(
+  board: Cell[][],
+  player: Player
+): ExplosionRound[] {
+  const rounds: ExplosionRound[] = []
+  let workingBoard = cloneBoard(board)
+  let roundNumber = 0
+
+  while (roundNumber < MAX_EXPLOSION_ITERATIONS) {
+    roundNumber++
+    const explosions: ExplosionRound["explosions"] = []
+
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const cell = workingBoard[r][c]
+        if (cell.count >= cell.criticalMass) {
+          const orbsToDistribute = cell.criticalMass
+          const adjacent = getAdjacentCells(r, c)
+
+          explosions.push({
+            row: r,
+            col: c,
+            orbsToDistribute,
+            targetCells: adjacent.map(([adjRow, adjCol]) => ({
+              row: adjRow,
+              col: adjCol,
+            })),
+          })
+
+          cell.count -= orbsToDistribute
+          if (cell.count <= 0) {
+            cell.count = 0
+            cell.player = null
+          }
+        }
+      }
+    }
+
+    if (explosions.length === 0) break
+
+    for (const exp of explosions) {
+      for (const target of exp.targetCells) {
+        const adjCell = workingBoard[target.row][target.col]
+
+        if (adjCell.player === null || adjCell.player === player) {
+          adjCell.player = player
+          adjCell.count += 1
+        } else {
+          adjCell.player = player
+          adjCell.count += 1
+        }
+      }
+    }
+
+    rounds.push({ round: roundNumber, explosions })
+  }
+
+  return rounds
+}
+
 export function applyMove(
   board: Cell[][],
   row: number,
   col: number,
   player: Player
-): { board: Cell[][]; hasExplosion: boolean } {
+): { board: Cell[][]; hasExplosion: boolean; rounds: ExplosionRound[] } {
   const newBoard = cloneBoard(board)
   const cell = newBoard[row][col]
 
@@ -70,12 +143,14 @@ export function applyMove(
   } else if (cell.player === player) {
     cell.count += 1
   } else {
-    return { board: newBoard, hasExplosion: false }
+    cell.player = player
+    cell.count += 1
   }
 
-  const hasExplosion = cell.count >= cell.criticalMass
+  const rounds = calculateExplosionRounds(newBoard, player)
+  const hasExplosion = rounds.length > 0
 
-  return { board: newBoard, hasExplosion }
+  return { board: newBoard, hasExplosion, rounds }
 }
 
 export function processExplosions(
@@ -88,7 +163,7 @@ export function processExplosions(
   let iterationCount = 0
   let lastExplosion: { row: number; col: number } | null = null
 
-  while (hasExplosions && iterationCount < 100) {
+  while (hasExplosions && iterationCount < MAX_EXPLOSION_ITERATIONS) {
     iterationCount++
     hasExplosions = false
     const explosions: [number, number][] = []
@@ -129,7 +204,7 @@ export function processExplosions(
             toPosition: [adjCol, 0.3, adjRow],
             fromColor,
             toColor: targetColor,
-            startTime: Date.now() + animatingOrbs.length * 50,
+            startTime: Date.now() + animatingOrbs.length * ORB_SPAWN_DELAY_MS,
             duration: ANIMATION_DURATION,
             completed: false,
           })
@@ -138,8 +213,8 @@ export function processExplosions(
             adjCell.player = player
             adjCell.count += 1
           } else {
-            newBoard[adjRow][adjCol].player = player
-            newBoard[adjRow][adjCol].count = 1
+            adjCell.player = player
+            adjCell.count += 1
           }
         }
       }

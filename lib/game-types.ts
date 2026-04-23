@@ -12,12 +12,22 @@ export const PLAYER_NAMES = {
 } as const
 
 export type Player = 1 | 2
-export type GameStatus = "waiting" | "playing" | "won"
+export type GameStatus = "waiting" | "playing" | "won" | "exploding"
 
 export interface Cell {
   count: number
   player: Player | null
   criticalMass: number
+}
+
+export interface ExplosionRound {
+  round: number
+  explosions: Array<{
+    row: number
+    col: number
+    orbsToDistribute: number
+    targetCells: Array<{ row: number; col: number }>
+  }>
 }
 
 export interface GameState {
@@ -29,6 +39,8 @@ export interface GameState {
   hostConnected: boolean
   joinerConnected: boolean
   createdBy: "host" | "joiner" | null
+  explosionRounds?: ExplosionRound[]
+  processingExplosion?: boolean
 }
 
 export interface GameMove {

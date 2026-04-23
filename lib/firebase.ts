@@ -1,19 +1,25 @@
-
-import { initializeApp } from "firebase/app";
-import { getDatabase } from "firebase/database";
+import { initializeApp } from "firebase/app"
+import { getDatabase } from "firebase/database"
 
 const firebaseConfig = {
-  apiKey: "AIzaSyDReA-v0I3J_-CbOOpPsmn_x4us4a1_UF8",
-  authDomain: "chess-nandanvarma.firebaseapp.com",
-  databaseURL: "https://chess-nandanvarma-default-rtdb.firebaseio.com",
-  projectId: "chess-nandanvarma",
-  storageBucket: "chess-nandanvarma.appspot.com",
-  messagingSenderId: "1022610696614",
-  appId: "1:1022610696614:web:8e0176f9e2bd4744174767"
-};
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+}
 
-const app = initializeApp(firebaseConfig);
+if (process.env.NODE_ENV === "development") {
+  console.log("[firebase] config loaded:", {
+    hasApiKey: !!firebaseConfig.apiKey,
+    authDomain: firebaseConfig.authDomain,
+    databaseURL: firebaseConfig.databaseURL,
+  })
+}
 
-const database = getDatabase(app);
+const app = initializeApp(firebaseConfig)
+const database = getDatabase(app)
 
-export default database;
+export default database

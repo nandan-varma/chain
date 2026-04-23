@@ -177,8 +177,16 @@ export function useGameActions(
   return { makeMove, resetGame, leaveGame }
 }
 
+function generateSecureGameId(): string {
+  const bytes = new Uint8Array(8)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (b) => b.toString(36).padStart(2, "0"))
+    .join("")
+    .toUpperCase()
+}
+
 export async function createGame(): Promise<string> {
-  const gameId = Math.random().toString(36).substring(2, 8).toUpperCase()
+  const gameId = generateSecureGameId()
   const initialState = createInitialGameState()
 
   await set(ref(database, `${GAME_REF_PREFIX}/${gameId}`), {
