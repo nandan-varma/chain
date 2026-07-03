@@ -1,0 +1,6 @@
+allowBuilds:
+  '@firebase/util': true
+  protobufjs: true
+  sharp: true
+overrides:
+  postcss: '>=8.5.10'
