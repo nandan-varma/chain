@@ -1,22 +1,24 @@
-# next-template
+# Chain Reaction
 
-A Next.js 13 template for building apps with Radix UI and Tailwind CSS.
-
-## Usage
-
-```bash
-npx create-next-app -e https://github.com/shadcn/next-template
-```
+A turn-based strategy game where you place orbs in cells and trigger chain explosions across the board — rebuilt in 3D for the web, up to 3 players, with real-time state synced via Firebase.
 
 ## Features
 
-- Next.js 13 App Directory
-- Radix UI Primitives
-- Tailwind CSS
-- Icons from [Lucide](https://lucide.dev)
-- Dark mode with `next-themes`
-- Tailwind CSS class sorting, merging and linting.
+- 3D rendered board using Three.js and React Three Fiber
+- Up to 3 players in the same game
+- Chain-reaction explosion mechanics with cell capacity based on board position (corner/edge/center)
+- Real-time game state sync via Firebase
 
-## License
+## Getting started
 
-Licensed under the [MIT license](https://github.com/shadcn/ui/blob/main/LICENSE.md).
+```bash
+pnpm install
+pnpm dev
+```
+
+## Built with
+
+- [Next.js](https://nextjs.org)
+- [React Three Fiber](https://docs.pmnd.rs/react-three-fiber) + [Three.js](https://threejs.org) — 3D board rendering
+- [Firebase](https://firebase.google.com) — realtime multiplayer state
+- TypeScript
