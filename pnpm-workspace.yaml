@@ -2,6 +2,3 @@ allowBuilds:
   '@firebase/util': true
   protobufjs: true
   sharp: true
-overrides:
-  postcss: 8.5.23
-  protobufjs: 7.6.5
