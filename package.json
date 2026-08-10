@@ -2,7 +2,6 @@
   "name": "chain",
   "version": "0.0.2",
   "private": true,
-  "packageManager": "pnpm@11.20.0",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
