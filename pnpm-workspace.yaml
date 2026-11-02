@@ -4,3 +4,7 @@ allowBuilds:
   '@firebase/util': true
   protobufjs: true
   sharp: true
+# Transitive via @firebase/firestore; pins to the first patched versions of GHSA advisories.
+overrides:
+  re2js: '>=2.8.7'
+  '@grpc/grpc-js': '>=1.13.6'
