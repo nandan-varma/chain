@@ -11,7 +11,7 @@ import {
 } from "@/lib/game-hooks"
 import { type GameState } from "@/lib/game-types"
 import { Button } from "@/components/ui/button"
-import ChainReactionGame from "@/components/chain-reaction-game"
+import ChainReactionGame from "@/components/game/ChainReactionGame"
 
 export default function GamePage({
   params,
@@ -77,13 +77,15 @@ export default function GamePage({
     )
   }
 
+  if (!gameState) return null
+
   if (gameState.gameStatus === "waiting" && playerType === "host") {
     return <WaitingScreen gameId={gameId} />
   }
 
   return (
     <ChainReactionGame
-      gameState={gameState}
+      gameState={gameState as any}
       onCellClick={makeMove}
       onReset={resetGame}
       onLeave={leaveGame}

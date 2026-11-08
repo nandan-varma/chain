@@ -9,32 +9,63 @@ import {
   update,
 } from "firebase/database"
 
-import database from "./firebase"
+import { database } from "./firebase"
 import {
   applyMove,
   checkVictory,
   createInitialGameState,
   getNextPlayer,
-  processExplosions,
 } from "./game-logic"
 import type { GameState, Player } from "./game-types"
 
 const GAME_REF_PREFIX = "chain"
 
+function generateSecureGameId(): string {
+  const bytes = new Uint8Array(8)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (b) => b.toString(36).padStart(2, "0"))
+    .join("")
+    .toUpperCase()
+}
+
+export async function createGame(): Promise<string> {
+  const gameId = generateSecureGameId()
+  const initialState = createInitialGameState()
+  await set(ref(database, `${GAME_REF_PREFIX}/${gameId}`), {
+    ...initialState,
+    gameStatus: "waiting",
+    hostConnected: true,
+    joinerConnected: false,
+    createdBy: "host",
+    createdAt: Date.now(),
+  })
+  return gameId
+}
+
+export async function joinGame(gameId: string): Promise<boolean> {
+  const gameRef = ref(database, `${GAME_REF_PREFIX}/${gameId}`)
+  const snapshot = await get(gameRef)
+  if (!snapshot.exists()) return false
+  const data = snapshot.val()
+  if (data.createdBy === "joiner") return false
+  await update(gameRef, {
+    createdBy: "joiner",
+    joinerConnected: true,
+    gameStatus: "playing",
+  })
+  return true
+}
+
 export function useGameListener(gameId: string, playerType: "host" | "joiner") {
-  const [gameState, setGameState] = useState<GameState>(
-    createInitialGameState()
-  )
+  const [gameState, setGameState] = useState<GameState | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!gameId) return
-
     const gameRef = ref(database, `${GAME_REF_PREFIX}/${gameId}`)
-
-    const handleDisconnect = onDisconnect(gameRef)
-    handleDisconnect.update({
+    const disconnect = onDisconnect(gameRef)
+    disconnect.update({
       [playerType === "host" ? "hostConnected" : "joinerConnected"]: false,
     })
 
@@ -45,7 +76,6 @@ export function useGameListener(gameId: string, playerType: "host" | "joiner") {
         setLoading(false)
         return
       }
-
       setGameState({
         board: data.board || [],
         currentPlayer: data.currentPlayer || 1,
@@ -58,10 +88,9 @@ export function useGameListener(gameId: string, playerType: "host" | "joiner") {
       })
       setLoading(false)
     })
-
     return () => {
       unsubscribe()
-      handleDisconnect.cancel()
+      disconnect.cancel()
     }
   }, [gameId, playerType])
 
@@ -71,15 +100,14 @@ export function useGameListener(gameId: string, playerType: "host" | "joiner") {
 export function useGameActions(
   gameId: string,
   playerType: "host" | "joiner",
-  gameState: GameState
+  gameState: GameState | null
 ) {
   const pendingRef = useRef(false)
 
   const makeMove = useCallback(
     async (row: number, col: number) => {
-      if (pendingRef.current) return
+      if (pendingRef.current || !gameState) return
       if (gameState.gameStatus !== "playing") return
-
       const myPlayer: Player = playerType === "host" ? 1 : 2
       if (gameState.currentPlayer !== myPlayer) return
 
@@ -88,59 +116,25 @@ export function useGameActions(
 
       try {
         await runTransaction(gameRef, (current) => {
-          if (!current) {
-            console.log("No game data, aborting transaction")
-            return
-          }
+          if (!current) return
+          if (current.gameStatus !== "playing") return current
+          if (current.currentPlayer !== myPlayer) return current
 
-          if (current.gameStatus !== "playing") {
-            console.log("Game not playing, aborting")
-            return current
-          }
-
-          if (current.currentPlayer !== myPlayer) {
-            console.log("Not your turn, aborting")
-            return current
-          }
-
-          const { board: boardAfterMove, hasExplosion } = applyMove(
+          const { board: newBoard } = applyMove(
             current.board,
             row,
             col,
             myPlayer
           )
-
-          if (!hasExplosion) {
-            const nextPlayer = getNextPlayer(myPlayer)
-            const { winner, gameStatus } = checkVictory(
-              boardAfterMove,
-              (current.moveCount || 0) + 1
-            )
-
-            return {
-              ...current,
-              board: boardAfterMove,
-              currentPlayer: nextPlayer,
-              gameStatus,
-              winner,
-              moveCount: (current.moveCount || 0) + 1,
-            }
-          }
-
-          const { board: boardAfterExplosions } = processExplosions(
-            boardAfterMove,
-            myPlayer
-          )
-
           const nextPlayer = getNextPlayer(myPlayer)
           const { winner, gameStatus } = checkVictory(
-            boardAfterExplosions,
+            newBoard,
             (current.moveCount || 0) + 1
           )
 
           return {
             ...current,
-            board: boardAfterExplosions,
+            board: newBoard,
             currentPlayer: nextPlayer,
             gameStatus,
             winner,
@@ -158,63 +152,15 @@ export function useGameActions(
 
   const resetGame = useCallback(async () => {
     const gameRef = ref(database, `${GAME_REF_PREFIX}/${gameId}`)
-    await update(gameRef, {
-      board: createInitialGameState().board,
-      currentPlayer: 1,
-      gameStatus: "playing",
-      winner: null,
-      moveCount: 0,
-    })
+    await update(gameRef, createInitialGameState())
   }, [gameId])
 
-  const leaveGame = useCallback(() => {
+  const leaveGame = useCallback(async () => {
     const gameRef = ref(database, `${GAME_REF_PREFIX}/${gameId}`)
-    update(gameRef, {
+    await update(gameRef, {
       [playerType === "host" ? "hostConnected" : "joinerConnected"]: false,
     })
   }, [gameId, playerType])
 
   return { makeMove, resetGame, leaveGame }
-}
-
-function generateSecureGameId(): string {
-  const bytes = new Uint8Array(8)
-  crypto.getRandomValues(bytes)
-  return Array.from(bytes, (b) => b.toString(36).padStart(2, "0"))
-    .join("")
-    .toUpperCase()
-}
-
-export async function createGame(): Promise<string> {
-  const gameId = generateSecureGameId()
-  const initialState = createInitialGameState()
-
-  await set(ref(database, `${GAME_REF_PREFIX}/${gameId}`), {
-    ...initialState,
-    gameStatus: "waiting",
-    hostConnected: true,
-    joinerConnected: false,
-    createdBy: "host",
-    createdAt: Date.now(),
-  })
-
-  return gameId
-}
-
-export async function joinGame(gameId: string): Promise<boolean> {
-  const gameRef = ref(database, `${GAME_REF_PREFIX}/${gameId}`)
-  const snapshot = await get(gameRef)
-
-  if (!snapshot.exists()) return false
-
-  const data = snapshot.val()
-  if (data.createdBy === "joiner") return false
-
-  await update(gameRef, {
-    createdBy: "joiner",
-    joinerConnected: true,
-    gameStatus: "playing",
-  })
-
-  return true
 }
