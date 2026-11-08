@@ -1,4 +1,4 @@
-import { initializeApp } from "firebase/app"
+import { getApps, initializeApp } from "firebase/app"
 import { getDatabase } from "firebase/database"
 
 const firebaseConfig = {
@@ -11,15 +11,8 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 }
 
-if (process.env.NODE_ENV === "development") {
-  console.log("[firebase] config loaded:", {
-    hasApiKey: !!firebaseConfig.apiKey,
-    authDomain: firebaseConfig.authDomain,
-    databaseURL: firebaseConfig.databaseURL,
-  })
-}
-
-const app = initializeApp(firebaseConfig)
+const app =
+  getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0]
 const database = getDatabase(app)
 
-export default database
+export { app, database }
